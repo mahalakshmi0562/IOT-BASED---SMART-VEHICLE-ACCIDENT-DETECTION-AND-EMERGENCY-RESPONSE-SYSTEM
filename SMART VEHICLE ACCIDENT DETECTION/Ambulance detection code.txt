@@ -1,0 +1,145 @@
+#include <SPI.h>
+#include <MFRC522.h>
+
+// RFID Reader Pins
+#define RST_PIN 9  // Reset pin
+#define SS_PIN 49  // Slave Select pin
+
+// Create RFID reader instance
+MFRC522 rfidReader(SS_PIN, RST_PIN);
+
+// RFID Tag UIDs for ambulances
+String ambulance1 = "C3 9A 95 C5";
+String ambulance2 = "B3 23 DA F8";
+String ambulance3 = "93 C2 D5 F8";
+String ambulance4 = "63 43 94 C5";
+
+// Variables to store detection time and status
+unsigned long incomingTime = 0;
+String detectedAmbulance = "";
+bool isIncoming = true;
+
+// Pin assignments for Signal 1 and Signal 2
+const int red1 = 3;
+const int yellow1 = 5;
+const int green1 = 7;
+const int red2 = 2;
+const int yellow2 = 8;
+const int green2 = 6;
+
+void setup() {
+  // Initialize Serial Monitor
+  Serial.begin(9600);
+
+  // Initialize SPI bus
+  SPI.begin();
+
+  // Initialize RFID reader
+  rfidReader.PCD_Init();
+
+  // Initialize traffic signals
+  pinMode(red1, OUTPUT);
+  pinMode(yellow1, OUTPUT);
+  pinMode(green1, OUTPUT);
+  pinMode(red2, OUTPUT);
+  pinMode(yellow2, OUTPUT);
+  pinMode(green2, OUTPUT);
+
+  // Set initial state: Signal 1 Red, Signal 2 Green
+  resetTrafficLights();
+
+  Serial.println("RFID Reader Initialized. Waiting for ambulances...");
+}
+
+void loop() {
+  // Check for incoming or outgoing ambulance
+  if (rfidReader.PICC_IsNewCardPresent() && rfidReader.PICC_ReadCardSerial()) {
+    String tagUID = getTagUID(rfidReader);
+
+    // Detect incoming ambulance
+    if (isIncoming) {
+      if (tagUID == ambulance1 || tagUID == ambulance2 || tagUID == ambulance3 || tagUID == ambulance4) {
+        incomingTime = millis();
+        detectedAmbulance = getAmbulanceNumber(tagUID);
+        Serial.print(detectedAmbulance);
+        Serial.println(" incoming at Reader 1.");
+        isIncoming = false; // Mark for outgoing check
+        allRedTrafficLights(); // Set all signals to red
+      }
+    } else {
+      // Detect outgoing ambulance (same UID)
+      if (tagUID == getAmbulanceUID(detectedAmbulance)) {
+        unsigned long outgoingTime = millis();
+        unsigned long timeTaken = outgoingTime - incomingTime;
+        Serial.print(detectedAmbulance);
+        Serial.print(" crossed at Reader 2. Time taken: ");
+        Serial.print(timeTaken / 1000.0); // Convert to seconds
+        Serial.println(" seconds.");
+        incomingTime = 0; // Reset for next detection
+        isIncoming = true; // Reset for next incoming detection
+        resetTrafficLights(); // Restore normal state
+      }
+    }
+    rfidReader.PICC_HaltA(); // Stop reading
+  }
+
+  // Check if time exceeded 60 seconds without crossing
+  if (!isIncoming && incomingTime != 0) {
+    unsigned long currentTime = millis();
+    if ((currentTime - incomingTime) > 60000) { // 60 seconds
+      Serial.print(detectedAmbulance);
+      Serial.println(" WARNING: Ambulance has not passed the signal yet!");
+      incomingTime = 0; // Reset for next detection
+      isIncoming = true; // Reset for next incoming detection
+      resetTrafficLights(); // Restore normal state
+    }
+  }
+}
+
+// Function to get RFID tag UID as a string
+String getTagUID(MFRC522 &reader) {
+  String tagUID = "";
+  for (byte i = 0; i < reader.uid.size; i++) {
+    tagUID += String(reader.uid.uidByte[i] < 0x10 ? "0" : "");
+    tagUID += String(reader.uid.uidByte[i], HEX);
+    if (i < reader.uid.size - 1) {
+      tagUID += " ";
+    }
+  }
+  tagUID.toUpperCase();
+  return tagUID;
+}
+
+// Function to return ambulance number based on UID
+String getAmbulanceNumber(String tagUID) {
+  if (tagUID == ambulance1) return "Ambulance 1";
+  if (tagUID == ambulance2) return "Ambulance 2";
+  if (tagUID == ambulance3) return "Ambulance 3";
+  if (tagUID == ambulance4) return "Ambulance 4";
+  return "Unknown";
+}
+
+// Function to return the UID based on ambulance number
+String getAmbulanceUID(String ambulance) {
+  if (ambulance == "Ambulance 1") return ambulance1;
+  if (ambulance == "Ambulance 2") return ambulance2;
+  if (ambulance == "Ambulance 3") return ambulance3;
+  if (ambulance == "Ambulance 4") return ambulance4;
+  return "";
+}
+
+// Function to set all traffic lights to red when ambulance is detected
+void allRedTrafficLights() {
+  digitalWrite(red1, HIGH);
+  digitalWrite(green1, LOW);
+  digitalWrite(red2, HIGH);
+  digitalWrite(green2, LOW);
+}
+
+// Function to reset traffic lights to normal state
+void resetTrafficLights() {
+  digitalWrite(red1, HIGH);
+  digitalWrite(green1, LOW);
+  digitalWrite(red2, LOW);
+  digitalWrite(green2, HIGH);
+}

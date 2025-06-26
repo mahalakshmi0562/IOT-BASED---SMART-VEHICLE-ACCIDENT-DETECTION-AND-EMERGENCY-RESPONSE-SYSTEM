@@ -1,0 +1,50 @@
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
+
+static const int RXPin = 12, TXPin = 13;
+static const uint32_t GPSBaud = 9600;
+
+SoftwareSerial gpsSerial(RXPin, TXPin);
+TinyGPSPlus gps;
+
+void setup() {
+  Serial.begin(9600);
+  gpsSerial.begin(GPSBaud);
+  Serial.println("GPS Test Starting...");
+}
+
+void loop() {
+  while (gpsSerial.available() > 0) {
+    gps.encode(gpsSerial.read());
+
+    if (gps.location.isUpdated()) {
+      // Determine N/S and E/W
+      char ns = (gps.location.lat() >= 0) ? 'N' : 'S';
+      char ew = (gps.location.lng() >= 0) ? 'E' : 'W';
+
+      // Display formatted location
+      Serial.print("Latitude: ");
+      Serial.print(abs(gps.location.lat()), 6);
+      Serial.print("° ");
+      Serial.println(ns);
+
+      Serial.print("Longitude: ");
+      Serial.print(abs(gps.location.lng()), 6);
+      Serial.print("° ");
+      Serial.println(ew);
+
+      Serial.print("Altitude: ");
+      Serial.print(gps.altitude.meters());
+      Serial.println(" meters");
+
+      Serial.print("Speed: ");
+      Serial.print(gps.speed.kmph());
+      Serial.println(" km/h");
+
+      Serial.print("Satellites: ");
+      Serial.println(gps.satellites.value());
+
+      Serial.println("----------------------");
+    }
+  }
+}

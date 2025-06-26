@@ -1,0 +1,94 @@
+#include <SoftwareSerial.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+
+// Pin definitions
+#define TILT_SENSOR_PIN 4  // Tilt sensor connected to digital pin 4
+#define SIM800L_TX_PIN 11  // SIM800L TX pin
+#define SIM800L_RX_PIN 10  // SIM800L RX pin
+
+// OLED display setup
+Adafruit_SH1106G display = Adafruit_SH1106G(128, 64, &Wire, -1);
+
+// SoftwareSerial for SIM800L
+SoftwareSerial sim800l(SIM800L_TX_PIN, SIM800L_RX_PIN);
+
+// Function prototypes
+void sendSMS(String message);
+void displayMessage(String message);
+
+void setup() {
+  // Initialize Serial Monitor
+  Serial.begin(9600);
+
+  // Initialize OLED display
+  display.begin(0x3C, true);  // SH1106 I2C address
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+  display.println("Initializing...");
+  display.display();
+
+  // Initialize SIM800L
+  sim800l.begin(9600);
+  delay(1000);
+  sim800l.println("AT");  // Check SIM800L response
+  delay(1000);
+
+  // Set tilt sensor pin as input with internal pull-up resistor
+  pinMode(TILT_SENSOR_PIN, INPUT_PULLUP);
+
+  // Display "System Ready"
+  displayMessage("System Ready");
+}
+
+void loop() {
+  // Read tilt sensor state
+  int tiltState = digitalRead(TILT_SENSOR_PIN);
+
+  // Check if the tilt sensor is triggered (LOW = tilted)
+  if (tiltState == LOW) {
+    // Display "Accident Detected" on OLED
+    displayMessage("Accident Detected");
+
+    // Send SMS with default location
+    String location = "https://www.google.com/maps?q=9.708341,78.094656";
+    String smsMessage = "Alert: Accident Detected\n" + location;
+    sendSMS(smsMessage);
+
+    // Wait for the tilt sensor to return to normal state
+    while (digitalRead(TILT_SENSOR_PIN) == LOW) {
+      delay(100);  // Wait until the sensor is no longer tilted
+    }
+
+    // Cooldown to prevent multiple triggers
+    delay(5000);
+
+    // Reset display to "System Ready"
+    displayMessage("System Ready");
+  }
+}
+
+// --------------------------
+// Helper Functions
+// --------------------------
+void displayMessage(String message) {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println(message);
+  display.display();
+}
+
+void sendSMS(String message) {
+  sim800l.println("AT+CMGF=1");  // Set SMS mode to text
+  delay(1000);
+  sim800l.println("AT+CMGS=\"+919943071295\"");  // Replace with recipient's phone number
+  delay(1000);
+  sim800l.print(message);  // Send the message
+  delay(1000);
+  sim800l.write(26);  // Send Ctrl+Z to end the message
+  delay(1000);
+}

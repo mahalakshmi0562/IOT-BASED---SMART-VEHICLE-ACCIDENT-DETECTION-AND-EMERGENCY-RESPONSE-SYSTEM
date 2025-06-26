@@ -1,0 +1,196 @@
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+
+// Pin definitions
+#define TILT_SENSOR_PIN 4        // Tilt sensor connected to digital pin 4
+#define SIM800L_TX_PIN 11        // SIM800L TX pin
+#define SIM800L_RX_PIN 10        // SIM800L RX pin
+#define GPS_TX_PIN 12            // Neo-6M GPS TX pin
+#define GPS_RX_PIN 13            // Neo-6M GPS RX pin
+
+// OLED display setup
+Adafruit_SH1106G display = Adafruit_SH1106G(128, 64, &Wire, -1);
+
+// GPS object
+TinyGPSPlus gps;
+
+// SoftwareSerial for SIM800L and GPS
+SoftwareSerial sim800l(SIM800L_TX_PIN, SIM800L_RX_PIN);
+SoftwareSerial gpsSerial(GPS_TX_PIN, GPS_RX_PIN);
+
+// Function prototypes
+void sendSMS(String message);
+void updateGPSData();
+String getGPSLocation();
+String getGPSTime();
+void displayMessage(String message);
+
+void setup() {
+  // Initialize Serial Monitor
+  Serial.begin(9600);
+
+  // Initialize OLED display
+  display.begin(0x3C, true);  // I2C address for SH1106
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+  display.println("Initializing GPS...");
+  display.display();
+
+  // Initialize SIM800L
+  sim800l.begin(9600);
+  delay(1000);
+  sim800l.println("AT");  // Check if SIM800L is responding
+  delay(1000);
+
+  // Initialize GPS
+  gpsSerial.begin(9600);
+
+  // Wait for GPS to acquire a valid fix
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Waiting for GPS...");
+  display.display();
+
+  while (!gps.location.isValid()) {
+    while (gpsSerial.available() > 0) {
+      gps.encode(gpsSerial.read());
+    }
+    delay(100);
+  }
+
+  // Set tilt sensor pin as input
+  pinMode(TILT_SENSOR_PIN, INPUT_PULLUP);  // Use internal pull-up resistor
+
+  // Display "System Ready" message
+  displayMessage("System Ready");
+}
+
+void loop() {
+  // Continuously read and parse GPS data
+  while (gpsSerial.available() > 0) {
+    gps.encode(gpsSerial.read());
+  }
+
+  // Read tilt sensor value
+  int tiltState = digitalRead(TILT_SENSOR_PIN);
+
+  // Check if the vehicle is tilted (accident detected)
+  if (tiltState == LOW) {  // LOW means the sensor is tilted
+    // Update GPS data
+    updateGPSData();
+
+    // Display "Accident Detected" on OLED
+    displayMessage("Accident Detected");
+
+    // Send SMS with location and time
+    String location = getGPSLocation();
+    String time = getGPSTime();
+    String smsMessage = "Alert: Accident Detected\n" + location + "\n" + time;
+    sendSMS(smsMessage);
+
+    // Wait for the tilt sensor to return to normal state
+    while (digitalRead(TILT_SENSOR_PIN) == LOW) {
+      delay(100);  // Wait until the sensor is no longer tilted
+    }
+
+    // Display "System Ready" again
+    displayMessage("System Ready");
+
+    // Optional: Add a delay to avoid multiple detections in quick succession
+    delay(5000);  // 5-second cooldown before next detection
+  }
+}
+
+void updateGPSData() {
+  // Continuously update GPS data
+  while (gpsSerial.available() > 0) {
+    gps.encode(gpsSerial.read());
+  }
+
+  // Debugging: Print GPS data to Serial Monitor
+  if (gps.location.isValid()) {
+    Serial.print("Latitude: ");
+    Serial.print(gps.location.lat(), 6);
+    Serial.print(", Longitude: ");
+    Serial.println(gps.location.lng(), 6);
+  } else {
+    Serial.println("GPS Location: INVALID");
+  }
+}
+
+String getGPSLocation() {
+  String location = "";
+  if (gps.location.isValid()) {
+    // Determine N/S and E/W
+    char ns = (gps.location.lat() >= 0) ? 'N' : 'S';
+    char ew = (gps.location.lng() >= 0) ? 'E' : 'W';
+
+    // Construct Google Maps link
+    location += "https://www.google.com/maps?q=";
+    location += String(abs(gps.location.lat()), 6);
+    location += ns;
+    location += ",";
+    location += String(abs(gps.location.lng()), 6);
+    location += ew;
+  } else {
+    location = "Location: INVALID";
+  }
+  return location;
+}
+
+String getGPSTime() {
+  String time = "";
+  if (gps.time.isValid()) {
+    // Convert UTC to IST (UTC + 5:30)
+    int hour = gps.time.hour() + 5; // Add 5 hours for IST
+    int minute = gps.time.minute() + 30; // Add 30 minutes for IST
+    int second = gps.time.second();
+
+    // Handle overflow in minutes and hours
+    if (minute >= 60) {
+      minute -= 60;
+      hour += 1;
+    }
+    if (hour >= 24) {
+      hour -= 24;
+    }
+
+    // Format time as HH:MM:SS
+    time += "Time: ";
+    if (hour < 10) time += "0"; // Add leading zero for hours
+    time += String(hour);
+    time += ":";
+    if (minute < 10) time += "0"; // Add leading zero for minutes
+    time += String(minute);
+    time += ":";
+    if (second < 10) time += "0"; // Add leading zero for seconds
+    time += String(second);
+  } else {
+    time = "Time: INVALID";
+  }
+  return time;
+}
+
+void displayMessage(String message) {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println(message);
+  display.display();
+}
+
+void sendSMS(String message) {
+  sim800l.println("AT+CMGF=1");  // Set SMS mode to text
+  delay(1000);
+  sim800l.println("AT+CMGS=\"+919943071295\"");  // Replace with recipient's phone number
+  delay(1000);
+  sim800l.print(message);  // Send the message
+  delay(1000);
+  sim800l.write(26);  // Send Ctrl+Z to end the message
+  delay(1000);
+}

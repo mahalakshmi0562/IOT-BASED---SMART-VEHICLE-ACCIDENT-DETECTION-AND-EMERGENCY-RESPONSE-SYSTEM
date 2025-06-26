@@ -1,0 +1,39 @@
+#include <SoftwareSerial.h>
+
+SoftwareSerial sim800l(11, 10); // RX, TX
+
+void setup() {
+  Serial.begin(9600);
+  sim800l.begin(9600);
+
+  delay(1000);
+  Serial.println("Initializing...");
+
+  // Check if SIM800L is responding
+  sim800l.println("AT");
+  delay(1000);
+  if (sim800l.available()) {
+    Serial.println("Module is ready.");
+  } else {
+    Serial.println("No response from module. Check wiring.");
+    return;
+  }
+
+  // Set SMS mode to text
+  sim800l.println("AT+CMGF=1");
+  delay(1000);
+
+  // Send SMS to the specified number
+  sim800l.println("AT+CMGS=\"+919943071295\""); // Set recipient number
+  delay(1000);
+  sim800l.print("This is a test SMS from SIM800L."); // SMS content
+  delay(1000);
+  sim800l.write(26); // End message with CTRL+Z
+  Serial.println("Test SMS Sent to 9943071295.");
+}
+
+void loop() {
+  if (sim800l.available()) {
+    Serial.write(sim800l.read());
+  }
+}
